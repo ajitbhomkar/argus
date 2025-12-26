@@ -86,12 +86,17 @@ argus/
 
 The easiest way to deploy is using Vercel:
 
-1. Push your code to GitHub
-2. Import your repository on [Vercel](https://vercel.com)
-3. Configure environment variables
-4. Deploy!
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/ajitbhomkar/argus)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=<your-repo-url>)
+**Quick Steps:**
+1. Click the "Deploy with Vercel" button above
+2. Sign in with your GitHub account
+3. Configure environment variables (optional)
+4. Click "Deploy"
+
+For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+**Live Demo**: Your app will be deployed at a URL like `https://argus-xxx.vercel.app`
 
 ## Environment Variables
 
