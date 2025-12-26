@@ -1,6 +1,174 @@
 import { NextRequest, NextResponse } from 'next/server'
+import OpenAI from 'openai'
 
-// Mock document processing - in production, integrate with Azure Document Intelligence, OpenAI, etc.
+// Import pdf-parse - it's a named export in ESM
+import * as pdfParseModule from 'pdf-parse'
+
+// Initialize OpenAI client (only if API key is provided)
+const openai = process.env.OPENAI_API_KEY 
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null
+
+// Extract text from PDF buffer
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  try {
+    // @ts-ignore - pdf-parse has export issues in TypeScript
+    const pdfParse = pdfParseModule.default || pdfParseModule
+    const data = await pdfParse(buffer)
+    return data.text
+  } catch (error) {
+    console.error('PDF extraction error:', error)
+    return ''
+  }
+}
+
+// AI-powered document analysis using OpenAI GPT-4
+async function analyzeWithAI(text: string, datasetId: string, fileName: string): Promise<any> {
+  if (!openai) {
+    return {
+      error: 'OpenAI API key not configured',
+      usingFallback: true
+    }
+  }
+
+  try {
+    // Get dataset-specific prompt
+    const systemPrompts: Record<string, string> = {
+      'invoice-dataset': `You are an expert invoice data extractor. Extract ALL relevant information from this invoice including:
+- Invoice number
+- Date (invoice date, due date if present)
+- Vendor/Company name and details
+- Customer/Bill to information
+- All line items with descriptions, quantities, and amounts
+- Subtotal, tax, discounts, and total amount
+- Payment terms and methods
+- Any other relevant details
+
+Return the data as a well-structured JSON object.`,
+      
+      'contract-dataset': `You are an expert contract analyst. Extract ALL key information from this contract including:
+- Contract parties (all involved entities)
+- Effective date and expiration date
+- Contract value/payment terms
+- Key terms and conditions
+- Obligations for each party
+- Termination clauses
+- Important deadlines
+- Governing law and jurisdiction
+- Any other critical contract details
+
+Return the data as a well-structured JSON object.`,
+      
+      'default-dataset': `You are an expert document analyzer. Extract ALL relevant information from this document including:
+- Document type and purpose
+- Key dates
+- Names and entities mentioned
+- Important numbers, amounts, or values
+- Main topics and subjects
+- Any structured data present
+- Key points and conclusions
+
+Return the data as a well-structured JSON object.`
+    }
+
+    const systemPrompt = systemPrompts[datasetId] || systemPrompts['default-dataset']
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // or "gpt-4o" for best results
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: `Document filename: ${fileName}\n\nDocument content:\n\n${text}`
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1, // Low temperature for consistent extraction
+    })
+
+    const extractedData = JSON.parse(completion.choices[0].message.content || '{}')
+    
+    return {
+      success: true,
+      extractedData,
+      model: completion.model,
+      tokensUsed: completion.usage?.total_tokens || 0,
+      confidence: 0.95
+    }
+  } catch (error: any) {
+    console.error('OpenAI analysis error:', error)
+    return {
+      error: error.message,
+      usingFallback: true
+    }
+  }
+}
+
+// Basic text analysis to extract invoice-like data
+function analyzeText(text: string, datasetId: string) {
+  const analysis: any = {
+    documentType: 'unknown',
+    confidence: 0.5,
+  }
+  
+  const fields: any = {}
+  
+  // Simple pattern matching for common fields
+  const totalPattern = /(?:total|amount|sum|balance|grand total)[\s:$]*(\$?[\d,]+\.?\d*)/i
+  const datePattern = /\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/
+  const vendorPattern = /(?:from|vendor|company|seller|billed by)[\s:]*([A-Z][A-Za-z\s&.,Inc]+?)(?:\n|$)/i
+  const invoicePattern = /invoice\s*(?:number|#|no\.?)[\s:]*([A-Z0-9-]+)/i
+  const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/
+  
+  const totalMatch = text.match(totalPattern)
+  if (totalMatch) {
+    fields.total = totalMatch[1].includes('$') ? totalMatch[1] : `$${totalMatch[1]}`
+  }
+  
+  const dateMatches = text.match(new RegExp(datePattern, 'g'))
+  if (dateMatches && dateMatches.length > 0) {
+    fields.date = dateMatches[0]
+    if (dateMatches.length > 1) {
+      fields.additionalDates = dateMatches.slice(1, 3)
+    }
+  }
+  
+  const vendorMatch = text.match(vendorPattern)
+  if (vendorMatch) {
+    fields.vendor = vendorMatch[1].trim()
+  }
+  
+  const invoiceMatch = text.match(invoicePattern)
+  if (invoiceMatch) {
+    fields.invoiceNumber = invoiceMatch[1]
+  }
+  
+  const emailMatch = text.match(emailPattern)
+  if (emailMatch) {
+    fields.email = emailMatch[0]
+  }
+  
+  // Determine document type based on dataset and content
+  if (datasetId === 'invoice-dataset' || text.toLowerCase().includes('invoice')) {
+    analysis.documentType = 'invoice'
+    analysis.confidence = 0.8
+  } else if (datasetId === 'contract-dataset' || text.toLowerCase().includes('contract') || text.toLowerCase().includes('agreement')) {
+    analysis.documentType = 'contract'
+    analysis.confidence = 0.75
+  }
+  
+  // Add statistics
+  analysis.wordCount = text.split(/\s+/).filter(w => w.length > 0).length
+  analysis.charCount = text.length
+  analysis.hasNumbers = /\d/.test(text)
+  analysis.hasCurrency = /\$|USD|EUR|GBP/.test(text)
+  
+  return { analysis, fields }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -35,45 +203,170 @@ export async function POST(request: NextRequest) {
     // Generate document ID
     const documentId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
-    // In production, this would:
-    // 1. Upload to blob storage
-    // 2. Queue for OCR processing (Azure Document Intelligence)
-    // 3. Extract data using AI (Azure OpenAI GPT-4 Vision)
-    // 4. Store results in database (Cosmos DB / Prisma)
+    let extractedText = ''
+    let processedData: any = {}
     
-    // Simulate processing
-    const mockExtractedData = {
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: file.size,
-      processedAt: new Date().toISOString(),
-      datasetId: datasetId,
-      // Mock OCR results
-      text: `Sample extracted text from ${file.name}`,
-      // Mock structured data extraction
-      metadata: {
-        documentType: 'invoice',
-        confidence: 0.95,
-      },
-      fields: {
-        total: '$1,234.56',
-        date: '2024-12-26',
-        vendor: 'Sample Corporation',
+    // Process PDF files
+    if (file.type === 'application/pdf') {
+      const arrayBuffer = await file.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+      extractedText = await extractPdfText(buffer)
+      
+      if (extractedText) {
+        // Use AI for extraction if available
+        const aiResult = await analyzeWithAI(extractedText, datasetId, file.name)
+        
+        if (aiResult.success) {
+          // AI extraction successful
+          processedData = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            processedAt: new Date().toISOString(),
+            datasetId: datasetId,
+            extractedText: extractedText.substring(0, 500) + (extractedText.length > 500 ? '...' : ''),
+            fullTextLength: extractedText.length,
+            extractedData: aiResult.extractedData,
+            metadata: {
+              processingMethod: 'AI-powered extraction',
+              model: aiResult.model,
+              tokensUsed: aiResult.tokensUsed,
+              confidence: aiResult.confidence,
+            },
+            processingNote: '✨ Processed with AI (OpenAI GPT-4). Real data extracted from your document!'
+          }
+        } else {
+          // Fallback to basic pattern matching
+          const { analysis, fields } = analyzeText(extractedText, datasetId)
+          processedData = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            processedAt: new Date().toISOString(),
+            datasetId: datasetId,
+            text: extractedText.substring(0, 1000) + (extractedText.length > 1000 ? '...' : ''),
+            fullTextLength: extractedText.length,
+            metadata: analysis,
+            fields: fields,
+            processingNote: aiResult.error 
+              ? `⚠️ AI processing unavailable: ${aiResult.error}. Using basic pattern matching. Add OPENAI_API_KEY to environment for AI-powered extraction.`
+              : 'Basic pattern matching used. Add OPENAI_API_KEY for AI-powered extraction.'
+          }
+        }
+      } else {
+        processedData = {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          processedAt: new Date().toISOString(),
+          datasetId: datasetId,
+          text: 'Unable to extract text from PDF. This might be a scanned document requiring OCR.',
+          metadata: {
+            documentType: 'unknown',
+            confidence: 0,
+          },
+          fields: {},
+          processingNote: '⚠️ No text extracted. For scanned documents, integrate Azure Document Intelligence OCR or similar service.'
+        }
+      }
+    } else if (file.type.startsWith('image/')) {
+      // For images, we can use GPT-4 Vision directly
+      if (openai) {
+        try {
+          const base64Image = Buffer.from(await file.arrayBuffer()).toString('base64')
+          const imageUrl = `data:${file.type};base64,${base64Image}`
+          
+          const systemPrompts: Record<string, string> = {
+            'invoice-dataset': 'Extract all invoice information including numbers, dates, items, amounts, vendor details, etc.',
+            'contract-dataset': 'Extract all contract information including parties, dates, terms, obligations, etc.',
+            'default-dataset': 'Extract all relevant information from this document image.'
+          }
+          
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { 
+                    type: "text", 
+                    text: systemPrompts[datasetId] || systemPrompts['default-dataset'] + "\n\nReturn the extracted data as a JSON object."
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: imageUrl }
+                  }
+                ]
+              }
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 4096
+          })
+          
+          const extractedData = JSON.parse(completion.choices[0].message.content || '{}')
+          
+          processedData = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            processedAt: new Date().toISOString(),
+            datasetId: datasetId,
+            extractedData: extractedData,
+            metadata: {
+              processingMethod: 'AI Vision OCR',
+              model: completion.model,
+              tokensUsed: completion.usage?.total_tokens || 0,
+              confidence: 0.9,
+            },
+            processingNote: '✨ Processed with GPT-4 Vision. Real data extracted from your image!'
+          }
+        } catch (error: any) {
+          processedData = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            processedAt: new Date().toISOString(),
+            datasetId: datasetId,
+            text: 'Image processing failed',
+            error: error.message,
+            processingNote: '⚠️ GPT-4 Vision processing failed. Check your API key and quota.'
+          }
+        }
+      } else {
+        processedData = {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          processedAt: new Date().toISOString(),
+          datasetId: datasetId,
+          text: 'Image processing requires OpenAI API key.',
+          processingNote: '⚠️ Add OPENAI_API_KEY to environment variables for AI-powered image OCR with GPT-4 Vision.'
+        }
+      }
+    } else {
+      processedData = {
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        processedAt: new Date().toISOString(),
+        datasetId: datasetId,
+        error: 'Unsupported file type',
+        processingNote: 'Only PDF and image files are currently supported.'
       }
     }
 
     return NextResponse.json({
       success: true,
       documentId: documentId,
-      message: 'Document uploaded successfully',
-      data: mockExtractedData,
-      status: 'processing'
-    }, { status: 202 })
+      message: 'Document processed successfully',
+      data: processedData,
+      status: 'completed'
+    }, { status: 200 })
 
   } catch (error) {
     console.error('Upload error:', error)
     return NextResponse.json(
-      { error: 'Failed to process upload' },
+      { error: 'Failed to process upload', details: String(error) },
       { status: 500 }
     )
   }

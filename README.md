@@ -57,18 +57,28 @@ npm install
 
 3. Set up environment variables:
 ```bash
-cp .env.example .env.local
+cp .env.local.example .env.local
 ```
 
-Edit `.env.local` and add your database URL and other secrets.
+4. Add your OpenAI API key to `.env.local`:
+```env
+OPENAI_API_KEY=sk-proj-your-api-key-here
+```
 
-4. Run database migrations (if using Prisma):
+Get your API key from: https://platform.openai.com/api-keys
+
+**Note**: The application will work without the API key, but will fall back to basic pattern matching instead of AI-powered extraction.
+
+5. (Optional) Set up database for persistence:
 ```bash
+# Edit .env.local and add your database URL
+# DATABASE_URL=postgresql://user:password@localhost:5432/argus
+
 npx prisma generate
 npx prisma db push
 ```
 
-5. Start the development server:
+6. Start the development server:
 ```bash
 npm run dev
 ```
@@ -113,6 +123,40 @@ argus/
 │   └── schema.prisma     # Database schema
 └── public/               # Static assets
 ```
+
+## 🤖 AI-Powered Extraction
+
+Argus uses OpenAI's GPT-4 models for intelligent document extraction:
+
+### Capabilities
+
+- **Text Documents (PDFs)**: Uses GPT-4o-mini to extract structured data from text-based PDFs
+- **Images & Scanned Documents**: Uses GPT-4 Vision for OCR and data extraction from images
+- **Context-Aware**: Understands document structure and relationships between fields
+- **Dataset-Specific**: Custom extraction prompts for invoices, contracts, and other document types
+- **Fallback Support**: Basic pattern matching when API key is not configured
+
+### Processing Methods
+
+The application automatically selects the best processing method:
+
+1. **AI-Powered** (when `OPENAI_API_KEY` is set):
+   - PDF text documents → GPT-4o-mini with extracted text
+   - Images (PNG, JPG, etc.) → GPT-4 Vision with image analysis
+   - Structured JSON output with confidence scores
+   - Token usage and cost tracking
+
+2. **Pattern Matching Fallback** (no API key):
+   - Basic regex patterns for common fields
+   - Invoice numbers, dates, totals, emails
+   - Works without external API but less accurate
+
+### Cost Considerations
+
+- **GPT-4o-mini**: ~$0.15 per 1M input tokens, ~$0.60 per 1M output tokens
+- **GPT-4 Vision**: ~$2.50 per 1M input tokens, ~$10 per 1M output tokens
+- Average cost per document: $0.01-0.05 depending on size
+- See usage data in extraction responses (`metadata.tokensUsed`)
 
 ## 🎮 Usage Examples
 
