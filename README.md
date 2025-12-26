@@ -1,19 +1,40 @@
-# Argus
+# 👁️ Argus - Document Intelligence Platform
 
-A modern Next.js application with authentication, database, and beautiful UI.
+A modern AI-powered document processing platform inspired by Azure ARGUS, built with Next.js 14+, TypeScript, and intelligent document understanding capabilities.
+
+## 🚀 Transform Document Processing with AI
+
+Argus revolutionizes how organizations extract, understand, and act on document data. By combining OCR precision with AI reasoning, Argus doesn't just read documents—it understands them.
 
 ## Features
 
-- ⚡ Next.js 14+ with App Router
-- 🎨 Tailwind CSS for styling
-- 🎭 Dark mode support
-- 🔐 Authentication with NextAuth.js
-- 🗄️ Database with Prisma ORM
-- 📱 Fully responsive design
-- 🎯 TypeScript for type safety
-- 🎪 shadcn/ui components
+### 🔍 Intelligent Document Understanding
+- ⚡ **AI-Powered Extraction**: Extract structured data from PDFs, images, forms, and invoices
+- 🧠 **Context-Aware Processing**: Understands document context, not just text
+- � **Zero-Shot Learning**: Works on new document types without training
+- 📄 **Multi-Format Support**: PDFs, images, forms, invoices, contracts, medical records
 
-## Getting Started
+### 💬 Interactive Document Chat
+- **Natural Language Q&A**: Ask questions about your documents
+- **Contextual Understanding**: AI-powered responses based on document content
+- **Conversation History**: Maintain context across multiple questions
+- **Multi-Document Support**: Query across your entire document library
+
+### � Dataset Management
+- **Custom Schemas**: Define extraction templates for specific document types
+- **Configurable Prompts**: Customize AI behavior for different use cases
+- **Pre-Built Templates**: Invoice, contract, and medical record processing
+- **Dynamic Configuration**: Runtime settings without redeployment
+
+### 🎨 Modern UI/UX
+- ⚡ Next.js 14+ with App Router
+- 🎭 Dark mode support
+- 📱 Fully responsive design
+- 🎪 Beautiful shadcn/ui components
+- 🔐 Authentication ready (NextAuth.js)
+- 🗄️ Database integration (Prisma ORM)
+
+## Tech Stack
 
 ### Prerequisites
 
@@ -66,19 +87,106 @@ Open [http://localhost:3000](http://localhost:3000) to see your application.
 
 ```
 argus/
-├── app/                  # Next.js App Router pages
-│   ├── api/             # API routes
-│   ├── dashboard/       # Dashboard pages
-│   ├── layout.tsx       # Root layout
-│   └── page.tsx         # Home page
-├── components/          # React components
-│   ├── ui/             # shadcn/ui components
-│   └── theme-provider.tsx
-├── lib/                 # Utility functions
-├── prisma/             # Database schema
-├── public/             # Static files
-└── .github/            # GitHub configuration
+├── app/                    # Next.js App Router
+│   ├── layout.tsx         # Root layout with theme
+│   ├── page.tsx           # Home page
+│   ├── about/             # About page
+│   ├── dashboard/         # Dashboard with analytics
+│   ├── documents/         # Document intelligence features
+│   │   ├── process/      # Upload and process documents
+│   │   ├── chat/         # Chat with documents
+│   │   └── datasets/     # Dataset management
+│   └── api/               # API routes
+│       ├── hello/        # Example endpoint
+│       ├── documents/    # Document processing APIs
+│       │   ├── upload/   # File upload endpoint
+│       │   └── chat/     # Document chat endpoint
+│       └── datasets/     # Dataset management API
+├── components/
+│   ├── ui/               # shadcn/ui components
+│   └── theme-provider.tsx # Dark mode provider
+├── lib/
+│   ├── utils.ts          # Utility functions
+│   ├── types.ts          # TypeScript types
+│   └── prisma.ts         # Prisma client
+├── prisma/
+│   └── schema.prisma     # Database schema
+└── public/               # Static assets
 ```
+
+## 🎮 Usage Examples
+
+### Upload and Process Documents
+
+1. Navigate to `/documents/process`
+2. Select a dataset (default, invoice, or contract)
+3. Upload your document (PDF, PNG, JPG, WebP)
+4. View extracted data and OCR results
+
+### Chat with Documents
+
+1. Go to `/documents/chat`
+2. Enter a document ID
+3. Ask questions about the document
+4. Get AI-powered contextual answers
+
+### Manage Datasets
+
+1. Visit `/documents/datasets`
+2. View existing extraction configurations
+3. Create custom datasets with specific prompts
+4. Define output schemas for structured data
+
+## API Reference
+
+### Document Processing
+
+**Upload Document**
+```bash
+POST /api/documents/upload
+Content-Type: multipart/form-data
+
+file: [PDF or image file]
+datasetId: "default-dataset"
+```
+
+**Chat with Document**
+```bash
+POST /api/documents/chat
+Content-Type: application/json
+
+{
+  "documentId": "doc_12345",
+  "question": "What is the total amount on this invoice?",
+  "conversationHistory": []
+}
+```
+
+### Dataset Management
+
+**List Datasets**
+```bash
+GET /api/datasets
+```
+
+**Create Dataset**
+```bash
+POST /api/datasets
+Content-Type: application/json
+
+{
+  "name": "Medical Records",
+  "description": "Healthcare document processing",
+  "systemPrompt": "Extract patient info, diagnosis, and treatment...",
+  "outputSchema": {
+    "patientName": "string",
+    "diagnosis": "string",
+    "treatment": "array"
+  }
+}
+```
+
+## Project Structure
 
 ## Deployment
 
@@ -110,8 +218,44 @@ DATABASE_URL="postgresql://user:password@localhost:5432/argus"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-secret-here"
 
-# Add other environment variables as needed
+# Optional: For production AI features
+# AZURE_OPENAI_API_KEY="your-key"
+# AZURE_OPENAI_ENDPOINT="your-endpoint"
+# AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
+# AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="your-endpoint"
 ```
+
+## 🎯 Use Cases
+
+### Invoice Processing
+- Extract invoice numbers, dates, vendors, line items
+- Calculate totals and tax amounts
+- Categorize expenses automatically
+
+### Contract Analysis  
+- Identify parties, terms, and effective dates
+- Extract key obligations and termination clauses
+- Highlight important legal provisions
+
+### Medical Records
+- Process patient information and medical history
+- Extract diagnoses, treatments, and medications
+- Organize clinical data for analysis
+
+## 🔮 Future Enhancements
+
+- [ ] Real Azure Document Intelligence integration
+- [ ] Azure OpenAI GPT-4 Vision integration
+- [ ] Blob Storage for document management
+- [ ] Cosmos DB / PostgreSQL for data persistence
+- [ ] Batch document processing
+- [ ] Document comparison and analysis
+- [ ] Export to multiple formats (JSON, CSV, Excel)
+- [ ] Advanced search and filtering
+- [ ] Role-based access control
+- [ ] Audit logging and compliance features
+
+## Environment Variables
 
 ## Learn More
 
