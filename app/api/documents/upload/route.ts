@@ -1,23 +1,115 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-
-// Import pdf-parse - it's a named export in ESM
-import * as pdfParseModule from 'pdf-parse'
+import { AzureKeyCredential, DocumentAnalysisClient } from '@azure/ai-form-recognizer'
 
 // Initialize OpenAI client (only if API key is provided)
 const openai = process.env.OPENAI_API_KEY 
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
 
-// Extract text from PDF buffer
+// Initialize Azure Document Intelligence client (if credentials provided)
+const azureClient = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT && process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
+  ? new DocumentAnalysisClient(
+      process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT,
+      new AzureKeyCredential(process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY)
+    )
+  : null
+
+// Extract text from PDF using pdf-parse-fork
 async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    // @ts-ignore - pdf-parse has export issues in TypeScript
-    const pdfParse = pdfParseModule.default || pdfParseModule
+    // Dynamic import to avoid build issues
+    // @ts-ignore - no types available
+    const pdfParse = (await import('pdf-parse-fork')).default
     const data = await pdfParse(buffer)
-    return data.text
+    return data.text || ''
   } catch (error) {
     console.error('PDF extraction error:', error)
+    return ''
+  }
+}
+
+// Extract text and data using Azure Document Intelligence
+async function extractWithAzure(buffer: Buffer, fileName: string): Promise<any> {
+  if (!azureClient) {
+    return { success: false, error: 'Azure Document Intelligence not configured' }
+  }
+
+  try {
+    // Analyze document with prebuilt-document model (general purpose)
+    const poller = await azureClient.beginAnalyzeDocument('prebuilt-document', buffer)
+    const result = await poller.pollUntilDone()
+
+    // Extract all text content
+    let fullText = ''
+    if (result.content) {
+      fullText = result.content
+    }
+
+    // Extract key-value pairs
+    const extractedFields: any = {}
+    if (result.keyValuePairs) {
+      for (const { key, value } of result.keyValuePairs) {
+        if (key && value) {
+          const keyText = key.content || ''
+          const valueText = value.content || ''
+          if (keyText && valueText) {
+            extractedFields[keyText] = valueText
+          }
+        }
+      }
+    }
+
+    // Extract tables
+    const tables: any[] = []
+    if (result.tables) {
+      for (const table of result.tables) {
+        const tableData: any = {
+          rowCount: table.rowCount,
+          columnCount: table.columnCount,
+          cells: []
+        }
+        for (const cell of table.cells) {
+          tableData.cells.push({
+            content: cell.content,
+            rowIndex: cell.rowIndex,
+            columnIndex: cell.columnIndex
+          })
+        }
+        tables.push(tableData)
+      }
+    }
+
+    return {
+      success: true,
+      text: fullText,
+      fields: extractedFields,
+      tables: tables,
+      confidence: 0.9,
+      method: 'Azure Document Intelligence'
+    }
+  } catch (error: any) {
+    console.error('Azure extraction error:', error)
+    return {
+      success: false,
+      error: error.message || 'Azure extraction failed'
+    }
+  }
+}
+
+// Fallback: Use OpenAI to process PDF if text extraction fails
+async function extractPdfWithAI(buffer: Buffer, fileName: string): Promise<string> {
+  if (!openai) {
+    return ''
+  }
+  
+  try {
+    // For PDFs that can't be parsed, we could convert to images
+    // For now, return empty - this would need pdf-to-image conversion
+    console.log('PDF text extraction failed, AI fallback would require image conversion')
+    return ''
+  } catch (error) {
+    console.error('PDF AI extraction error:', error)
     return ''
   }
 }
@@ -210,9 +302,40 @@ export async function POST(request: NextRequest) {
     if (file.type === 'application/pdf') {
       const arrayBuffer = await file.arrayBuffer()
       const buffer = Buffer.from(arrayBuffer)
-      extractedText = await extractPdfText(buffer)
       
-      if (extractedText) {
+      // Try Azure Document Intelligence first if available
+      if (azureClient) {
+        const azureResult = await extractWithAzure(buffer, file.name)
+        
+        if (azureResult.success) {
+          // Azure extraction successful - most reliable!
+          processedData = {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            processedAt: new Date().toISOString(),
+            datasetId: datasetId,
+            extractedText: azureResult.text.substring(0, 500) + (azureResult.text.length > 500 ? '...' : ''),
+            fullTextLength: azureResult.text.length,
+            extractedData: azureResult.fields,
+            tables: azureResult.tables,
+            metadata: {
+              processingMethod: azureResult.method,
+              confidence: azureResult.confidence,
+            },
+            processingNote: '✨ Processed with Azure Document Intelligence. Most accurate OCR and extraction!'
+          }
+        } else {
+          // Azure failed, fall back to basic extraction
+          extractedText = await extractPdfText(buffer)
+        }
+      } else {
+        // No Azure, use basic extraction
+        extractedText = await extractPdfText(buffer)
+      }
+      
+      // If we still don't have processed data and have extracted text
+      if (!processedData.fileName && extractedText) {
         // Use AI for extraction if available
         const aiResult = await analyzeWithAI(extractedText, datasetId, file.name)
         

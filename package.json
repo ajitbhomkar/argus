@@ -11,8 +11,10 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@azure/ai-form-recognizer": "^5.1.0",
     "@prisma/client": "^5.20.0",
     "@radix-ui/react-slot": "^1.1.0",
+    "canvas": "^3.2.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "lucide-react": "^0.460.0",
@@ -20,7 +22,7 @@
     "next-auth": "^4.24.0",
     "next-themes": "^0.3.0",
     "openai": "^6.15.0",
-    "pdf-parse": "^2.4.5",
+    "pdf-parse-fork": "^1.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "tailwind-merge": "^2.5.0",
