@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import Groq from 'groq-sdk'
 import { AzureKeyCredential, DocumentAnalysisClient } from '@azure/ai-form-recognizer'
 
-// Initialize OpenAI client (only if API key is provided)
+// Initialize AI clients (priority: Groq > OpenAI > None)
+const groq = process.env.GROQ_API_KEY
+  ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+  : null
+
 const openai = process.env.OPENAI_API_KEY 
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
+
+// Use Groq if available, otherwise OpenAI
+const aiClient = groq || openai
 
 // Initialize Azure Document Intelligence client (if credentials provided)
 const azureClient = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT && process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY
@@ -114,11 +122,11 @@ async function extractPdfWithAI(buffer: Buffer, fileName: string): Promise<strin
   }
 }
 
-// AI-powered document analysis using OpenAI GPT-4
+// AI-powered document analysis using Groq or OpenAI
 async function analyzeWithAI(text: string, datasetId: string, fileName: string): Promise<any> {
-  if (!openai) {
+  if (!aiClient) {
     return {
-      error: 'OpenAI API key not configured',
+      error: 'No AI API key configured. Add GROQ_API_KEY or OPENAI_API_KEY to environment.',
       usingFallback: true
     }
   }
@@ -165,21 +173,42 @@ Return the data as a well-structured JSON object.`
 
     const systemPrompt = systemPrompts[datasetId] || systemPrompts['default-dataset']
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // or "gpt-4o" for best results
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: `Document filename: ${fileName}\n\nDocument content:\n\n${text}`
-        }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.1, // Low temperature for consistent extraction
-    })
+    // Determine which model to use
+    const model = groq ? "llama-3.3-70b-versatile" : "gpt-4o-mini"
+    const provider = groq ? "Groq (FREE)" : "OpenAI"
+
+    // Create completion using the available client
+    const completion = groq 
+      ? await groq.chat.completions.create({
+          model: model,
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: `Document filename: ${fileName}\n\nDocument content:\n\n${text}`
+            }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.1,
+        })
+      : await openai!.chat.completions.create({
+          model: model,
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: `Document filename: ${fileName}\n\nDocument content:\n\n${text}`
+            }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.1,
+        })
 
     const extractedData = JSON.parse(completion.choices[0].message.content || '{}')
     
@@ -187,6 +216,7 @@ Return the data as a well-structured JSON object.`
       success: true,
       extractedData,
       model: completion.model,
+      provider: provider,
       tokensUsed: completion.usage?.total_tokens || 0,
       confidence: 0.95
     }
@@ -352,11 +382,12 @@ export async function POST(request: NextRequest) {
             extractedData: aiResult.extractedData,
             metadata: {
               processingMethod: 'AI-powered extraction',
+              provider: aiResult.provider || 'AI',
               model: aiResult.model,
               tokensUsed: aiResult.tokensUsed,
               confidence: aiResult.confidence,
             },
-            processingNote: '✨ Processed with AI (OpenAI GPT-4). Real data extracted from your document!'
+            processingNote: `✨ Processed with ${aiResult.provider || 'AI'}! Real data extracted from your document!`
           }
         } else {
           // Fallback to basic pattern matching
@@ -372,8 +403,8 @@ export async function POST(request: NextRequest) {
             metadata: analysis,
             fields: fields,
             processingNote: aiResult.error 
-              ? `⚠️ AI processing unavailable: ${aiResult.error}. Using basic pattern matching. Add OPENAI_API_KEY to environment for AI-powered extraction.`
-              : 'Basic pattern matching used. Add OPENAI_API_KEY for AI-powered extraction.'
+              ? `⚠️ AI processing unavailable: ${aiResult.error}. Using basic pattern matching.`
+              : 'Basic pattern matching used. Add GROQ_API_KEY or OPENAI_API_KEY for AI-powered extraction.'
           }
         }
       } else {
@@ -393,7 +424,7 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (file.type.startsWith('image/')) {
-      // For images, we can use GPT-4 Vision directly
+      // For images, we can use GPT-4 Vision (Groq doesn't support vision yet)
       if (openai) {
         try {
           const base64Image = Buffer.from(await file.arrayBuffer()).toString('base64')
@@ -437,11 +468,12 @@ export async function POST(request: NextRequest) {
             extractedData: extractedData,
             metadata: {
               processingMethod: 'AI Vision OCR',
+              provider: 'OpenAI GPT-4 Vision',
               model: completion.model,
               tokensUsed: completion.usage?.total_tokens || 0,
               confidence: 0.9,
             },
-            processingNote: '✨ Processed with GPT-4 Vision. Real data extracted from your image!'
+            processingNote: '✨ Processed with OpenAI GPT-4 Vision. Real data extracted from your image!'
           }
         } catch (error: any) {
           processedData = {
@@ -462,8 +494,10 @@ export async function POST(request: NextRequest) {
           fileSize: file.size,
           processedAt: new Date().toISOString(),
           datasetId: datasetId,
-          text: 'Image processing requires OpenAI API key.',
-          processingNote: '⚠️ Add OPENAI_API_KEY to environment variables for AI-powered image OCR with GPT-4 Vision.'
+          text: 'Image processing requires OpenAI API (for GPT-4 Vision) or Azure Document Intelligence.',
+          processingNote: groq 
+            ? '⚠️ Groq does not support vision yet. For images, add OPENAI_API_KEY or use Azure Document Intelligence.'
+            : '⚠️ Add OPENAI_API_KEY for AI-powered image OCR with GPT-4 Vision, or use Azure Document Intelligence.'
         }
       }
     } else {

@@ -60,14 +60,35 @@ npm install
 cp .env.local.example .env.local
 ```
 
-4. Add your OpenAI API key to `.env.local`:
+4. **Add AI API key** (Choose ONE - Groq is recommended for FREE unlimited use):
+
+**Option A: Groq (FREE - Recommended)** ⭐
+```env
+GROQ_API_KEY=gsk_your-api-key-here
+```
+- Get FREE key from: https://console.groq.com
+- 14,400 requests per day FREE
+- Lightning fast inference
+- No credit card required
+
+**Option B: OpenAI (Paid)**
 ```env
 OPENAI_API_KEY=sk-proj-your-api-key-here
 ```
+- Get key from: https://platform.openai.com/api-keys
+- Best quality but has quotas/costs
 
-Get your API key from: https://platform.openai.com/api-keys
+**Option C: Azure Document Intelligence (FREE tier: 500 pages/month)**
+```env
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-name.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your-key-here
+```
+- Most accurate for invoices/receipts
+- Get from: https://portal.azure.com
 
-**Note**: The application will work without the API key, but will fall back to basic pattern matching instead of AI-powered extraction.
+See `FREE_AI_APIS.md` for more free options!
+
+**Note**: The application will work without an API key, but will fall back to basic pattern matching instead of AI-powered extraction.
 
 5. (Optional) Set up database for persistence:
 ```bash
